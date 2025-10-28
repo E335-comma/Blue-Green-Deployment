@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx_bluegreen
+    ports:
+      - "8080:80"
+    depends_on:
+      - app_blue
+      - app_green
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+    volumes: 
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+    command: >
+      /bin/sh -c  '
+          if [ "${ACTIVE_POOL:-blue}" = "green" ]; then
+            export PRIMARY_HOST=app_green
+            export BACKUP_HOST=app_blue
+          else
+            export PRIMARY_HOST=app_blue
+            export BACKUP_HOST=app_green
+          fi
+
+          envsubst "$$PRIMARY_HOST $$BACKUP_HOST" < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/nginx.conf
+
+          nginx -g "daemon off;"
+      '
+    networks:
+      - bluegreen_net
+
+  app_blue:
+    image: ${BLUE_IMAGE}
+    container_name: app_blue
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - APP_POOL=blue
+      - PORT=3000
+      - RELEASE_ID=${RELEASE_ID_BLUE}
+    ports:
+      - "8081:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=2", "-O", "-", "http://localhost:3000/healthz"]
+      interval: 1s
+      timeout: 2s
+      retries: 1
+      start_period: 1s
+    networks:
+      - bluegreen_net
+  app_green:
+    image: ${GREEN_IMAGE}
+    container_name: app_green
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - APP_POOL=green
+      - PORT=3000
+      - RELEASE_ID=${RELEASE_ID_GREEN}
+    ports:
+      - "8082:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=2", "-O", "-", "http://localhost:3000/healthz"]
+      interval: 1s
+      timeout: 2s
+      retries: 1
+      start_period: 1s
+    networks:
+      - bluegreen_net
+
+networks:
+  bluegreen_net:
+    driver: bridge
+
+
+  
+
+  
